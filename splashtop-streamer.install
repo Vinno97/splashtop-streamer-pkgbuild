@@ -1,0 +1,127 @@
+pre_install() {
+
+	if [ "$1" = "install" ]; then
+	    echo "[Splashtop-Streamer] Install streamer"
+	fi
+
+	if [ "$1" = "upgrade" ]; then
+	    echo "[Splashtop-Streamer] Upgrade streamer"
+	fi
+
+	if [ -f "/opt/splashtop-streamer/config/global.conf" ]; then
+	    echo "[Splashtop-Streamer] Backup streamer settings"
+	fi
+
+}
+
+post_install() {
+	gtk-update-icon-cache -q -t -f usr/share/icons/hicolor
+	if [ "$1" = "configure" ]; then
+		echo "[Splashtop-Streamer] Configure streamer"
+	    if [ ! -e "/etc/splashtop-streamer.conf" ]; then
+	        echo "LastConfigured=`date +%s`" > /etc/splashtop-streamer.conf
+	    fi
+		if [ ! -d "/opt/splashtop-streamer/config/" ]; then
+			mkdir /opt/splashtop-streamer/config/
+		fi
+		if [ ! -d "/opt/splashtop-streamer/dump/" ]; then
+			mkdir /opt/splashtop-streamer/dump/
+		fi
+		if [ ! -d "/opt/splashtop-streamer/log/" ]; then
+			mkdir /opt/splashtop-streamer/log/
+		fi
+		chmod a=rwx /opt/splashtop-streamer/config
+	fi
+
+	if [ ! -f "/usr/bin/splashtop-streamer" ]; then
+		echo "[Splashtop-Streamer] Install user binary link"
+		ln -s /opt/splashtop-streamer/script/splashtop-streamer /usr/bin/splashtop-streamer
+	fi
+
+	#
+	# WORKAROUND
+	# In Ubuntu 20.04 MATE Desktop Environment, the desktop entry for "Splashtop Streamer"
+	# cannot be found in brisk-menu immediately after installed the .deb.
+	# Append an new line to /usr/share/applications/com.splashtop.streamer.desktop
+	# to trigger the brisk-menu to show "Splashtop Streamer" immediately.
+	#
+	echo "" >> /usr/share/applications/com.splashtop.streamer.desktop
+
+	if [ -e /etc/gdm3/custom.conf ];then
+		sed -i 's/#WaylandEnable=false/WaylandEnable=false/' /etc/gdm3/custom.conf
+	fi
+
+	if [ -d /usr/lib/systemd/system/ ]; then
+		echo "[Splashtop-Streamer] Install streamer service"
+		cp /opt/splashtop-streamer/config/SRStreamer.service /usr/lib/systemd/system/
+		ln -s /usr/lib/systemd/system/SRStreamer.service /etc/systemd/system/SRStreamer.service
+	fi
+
+	if [ -f "/etc/systemd/system/SRStreamer.service" ]; then
+		echo "[Splashtop-Streamer] Start streamer service"
+		systemctl daemon-reload
+		systemctl restart SRStreamer.service
+		systemctl enable /usr/lib/systemd/system/SRStreamer.service
+	fi
+
+
+	update-desktop-database -q
+}
+
+pre_upgrade() {
+	pre_install
+}
+
+post_upgrade() {
+	post_install
+}
+
+pre_remove() {
+
+	if [ "$1" = "remove" ]; then
+		if [ -f /tmp/sru ]; then
+			rm /tmp/sru
+		fi
+		if [ -f "/opt/splashtop-streamer/SRUtility" ]; then
+			cp /opt/splashtop-streamer/SRUtility /tmp/sru
+		fi
+	fi
+
+	if [ -f "/etc/systemd/system/SRStreamer.service" ]; then
+		echo "[Splashtop-Streamer] Stop streamer service"
+		systemctl stop SRStreamer.service
+		echo "[Splashtop-Streamer] Disable streamer service"
+		systemctl disable SRStreamer.service
+		echo "[Splashtop-Streamer] Remove streamer service"
+		rm /usr/lib/systemd/system/SRStreamer.service
+		systemctl daemon-reload
+		# Kill SRStreamer processes, ignore error here
+		killall -q -9 SRStreamer || true
+	fi
+
+}
+
+post_remove() {
+	gtk-update-icon-cache -q -t -f usr/share/icons/hicolor
+
+	if [ "$1" = "remove" ]; then
+		if [ -d "/opt/splashtop-streamer/config/" ]; then
+			echo "[Splashtop-Streamer] Remove streamer settings"
+			if [ -f /tmp/sru ]; then
+				/tmp/sru -remove
+				rm /tmp/sru
+			fi
+
+			rm -rf /opt/splashtop-streamer/config/global.conf
+			rm -rf /opt/splashtop-streamer/config/region.json
+			rm -rf /opt/splashtop-streamer/log
+		fi
+		find /home -type f | grep /.config/autostart/com.splashtop.streamer.desktop | xargs rm -f
+	fi
+
+	rm /usr/bin/splashtop-streamer
+	rm -rf /opt/splashtop-streamer/dump
+	rm -rf /opt/splashtop-streamer/config/agent_db.txt
+
+	update-desktop-database -q
+}
